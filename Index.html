@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Collision Data Logger - Soft Edition</title>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(to right, #fdfbfb, #ebedee);
+  color: #444;
+}
+
+.wrapper { padding: 15px; }
+
+.container {
+  max-width: 900px;
+  margin: auto;
+  background: white;
+  padding: 20px;
+  border-radius: 20px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+}
+
+.header { text-align: center; margin-bottom: 15px; }
+.header h1 { margin: 0; font-size: 26px; color: #555; }
+.header h2 { margin: 0; font-size: 15px; color: #888; font-weight: normal; }
+
+.status {
+  text-align: center;
+  margin: 10px 0;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 5px;
+  border-radius: 10px;
+}
+.run { color: #2e7d32; background: #e8f5e9; }
+.stop { color: #c62828; background: #ffeeaa; }
+
+.btn-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.btn {
+  width: 90%;
+  max-width: 200px;
+  padding: 12px;
+  border: none;
+  border-radius: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.green { background: #a8e6cf; color: #2d5a4c; }
+.red { background: #ffaaa5; color: #7a3e3b; }
+.gray { background: #dce1e3; color: #555; }
+
+.btn:hover { opacity: 0.8; transform: translateY(-2px); }
+
+.section-title { 
+  margin: 20px 0 10px; 
+  font-weight: bold; 
+  color: #555;
+  border-left: 5px solid #a8e6cf;
+  padding-left: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th, td {
+  border-bottom: 1px solid #eee;
+  padding: 12px 8px;
+  text-align: center;
+}
+
+th { background: #fafafa; color: #777; }
+
+.badge {
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: bold;
+}
+.hijau { background: #d4edda; color: #155724; }
+.merah { background: #f8d7da; color: #721c24; }
+
+.chart-container {
+  height: 350px;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 2px dashed #eee;
+}
+
+@media(min-width: 768px) {
+  .btn-group { flex-direction: row; justify-content: center; }
+  table { font-size: 15px; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrapper">
+<div class="container">
+
+<div class="header">
+  <h1>Collision Data Logger</h1>
+  <h2>Kelompok 11</h2>
+</div>
+
+<div id="status" class="status stop">Status: Berhenti</div>
+
+<div class="btn-group">
+  <button class="btn green" onclick="mulai()">MULAI</button>
+  <button class="btn red" onclick="berhenti()">BERHENTI</button>
+  <button class="btn gray" onclick="resetData()">RESET</button>
+</div>
+
+<div class="section-title">Hasil Analisis Momentum</div>
+<div style="overflow-x:auto;">
+<table id="tabel">
+<thead>
+<tr>
+  <th>No</th>
+  <th>p Sebelum</th>
+  <th>p Sesudah</th>
+  <th>Kesimpulan</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+
+<div class="section-title">Grafik Perbandingan</div>
+<div class="chart-container">
+<canvas id="grafik"></canvas>
+</div>
+
+<!-- ANALISIS -->
+<div class="section-title">Analisis Ilmiah</div>
+<div id="analisis" style="background:#f9f9f9;padding:15px;border-radius:10px;font-size:14px;margin-top:10px;">
+Menunggu data...
+</div>
+
+</div>
+</div>
+
+<script>
+// FIREBASE
+var firebaseConfig = {
+  apiKey: "AIzaSyC_pgS-pXkKptwa49jr35RPzLgWULiz7l8",
+  authDomain: "collision-data-logger.firebaseapp.com",
+  databaseURL: "https://collision-data-logger-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "collision-data-logger",
+};
+firebase.initializeApp(firebaseConfig);
+var db = firebase.database();
+
+// VAR
+let no = 1;
+let label = [];
+let sebelum = [];
+let sesudah = [];
+let aktif = false;
+
+let prevP1 = null;
+let prevP2 = null;
+
+// CHART
+const chart = new Chart(document.getElementById("grafik"), {
+  type: "line",
+  data: {
+    labels: label,
+    datasets: [
+      { label: "P Sebelum", data: sebelum },
+      { label: "P Sesudah", data: sesudah }
+    ]
+  }
+});
+
+// TAMBAH DATA
+function tambahData(p1, p2) {
+  if (p1 === 0 || p1 == null || p2 == null) return;
+
+  let error = Math.abs((p1 - p2) / p1) * 100;
+
+  let hasil = error < 20
+    ? `<span class="badge hijau">mendekati (${error.toFixed(1)}%)</span>`
+    : `<span class="badge merah">tidak (${error.toFixed(1)}%)</span>`;
+
+  let row = document.querySelector("#tabel tbody").insertRow(0);
+  row.insertCell(0).innerHTML = no;
+  row.insertCell(1).innerHTML = p1.toFixed(4);
+  row.insertCell(2).innerHTML = p2.toFixed(4);
+  row.insertCell(3).innerHTML = hasil;
+
+  label.push("Uji " + no);
+  sebelum.push(p1);
+  sesudah.push(p2);
+
+  chart.update();
+
+  // ANALISIS
+  let teks = error < 20
+    ? `Momentum mendekati sama (error ${error.toFixed(1)}%), hukum kekekalan momentum terpenuhi.`
+    : `Perbedaan besar (error ${error.toFixed(1)}%), kemungkinan karena gesekan atau sensor.`;
+
+  document.getElementById("analisis").innerText = teks;
+
+  no++;
+}
+
+// LISTENER
+db.ref("momentum").on("value", (snap) => {
+  if (!aktif) return;
+  const d = snap.val();
+  if (!d) return;
+
+  if (d.p_sebelum === prevP1 && d.p_sesudah === prevP2) return;
+
+  prevP1 = d.p_sebelum;
+  prevP2 = d.p_sesudah;
+
+  tambahData(d.p_sebelum, d.p_sesudah);
+});
+
+// BUTTON
+function mulai() {
+  aktif = true;
+  document.getElementById("status").innerText = "Berjalan";
+}
+function berhenti() {
+  aktif = false;
+  document.getElementById("status").innerText = "Berhenti";
+}
+function resetData() {
+  document.querySelector("#tabel tbody").innerHTML = "";
+  label.length = sebelum.length = sesudah.length = 0;
+  chart.update();
+  no = 1;
+}
+</script>
+
+</body>
+</html>
